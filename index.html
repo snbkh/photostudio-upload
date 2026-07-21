@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Photo Studio — Upload</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: #0f172a;
+            color: #f8fafc;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+
+        .card {
+            background: #1e293b;
+            border-radius: 20px;
+            padding: 32px 24px;
+            width: 100%;
+            max-width: 420px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            text-align: center;
+        }
+
+        .logo { font-size: 48px; margin-bottom: 10px; }
+
+        h2 {
+            font-size: 22px;
+            color: #38bdf8;
+            margin-bottom: 6px;
+            font-weight: 700;
+        }
+
+        .subtitle {
+            font-size: 13px;
+            color: #64748b;
+            margin-bottom: 28px;
+            line-height: 1.5;
+        }
+
+        /* Status pill */
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 16px;
+            border-radius: 999px;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 24px;
+            transition: all 0.3s;
+        }
+        .status-pill.connecting { background: rgba(251,191,36,0.15); color: #fbbf24; }
+        .status-pill.ready      { background: rgba(34,197,94,0.15);  color: #22c55e; }
+        .status-pill.sending    { background: rgba(56,189,248,0.15); color: #38bdf8; }
+        .status-pill.done       { background: rgba(34,197,94,0.15);  color: #22c55e; }
+        .status-pill.error      { background: rgba(239,68,68,0.15);  color: #ef4444; }
+
+        .dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+        .dot.pulse {
+            animation: pulse 1.2s infinite;
+        }
+        @keyframes pulse {
+            0%,100% { opacity: 1; transform: scale(1); }
+            50%      { opacity: 0.4; transform: scale(0.7); }
+        }
+
+        /* Upload area */
+        .upload-zone {
+            border: 2px dashed #334155;
+            border-radius: 16px;
+            padding: 40px 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: rgba(255,255,255,0.02);
+            position: relative;
+        }
+        .upload-zone.active-zone {
+            border-color: #38bdf8;
+            background: rgba(56,189,248,0.05);
+        }
+        .upload-zone.disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+        .upload-icon { font-size: 52px; display: block; margin-bottom: 12px; }
+        .upload-label {
+            font-size: 15px;
+            font-weight: 600;
+            color: #94a3b8;
+            margin-bottom: 6px;
+        }
+        .upload-hint { font-size: 12px; color: #475569; }
+
+        input[type="file"] { display: none; }
+
+        /* Preview */
+        #preview-img {
+            display: none;
+            width: 100%;
+            max-height: 240px;
+            object-fit: contain;
+            border-radius: 12px;
+            margin-bottom: 16px;
+            border: 2px solid #334155;
+        }
+
+        /* Progress bar */
+        .progress-wrap {
+            display: none;
+            background: #1e293b;
+            border-radius: 999px;
+            height: 8px;
+            overflow: hidden;
+            margin: 16px 0;
+            border: 1px solid #334155;
+        }
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #38bdf8, #818cf8);
+            border-radius: 999px;
+            width: 0%;
+            transition: width 0.2s ease;
+        }
+
+        /* Buttons */
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border-radius: 12px;
+            border: none;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-top: 12px;
+            font-family: inherit;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #0ea5e9, #6366f1);
+            color: white;
+        }
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 20px rgba(14,165,233,0.3);
+        }
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .btn-secondary {
+            background: #1e293b;
+            color: #94a3b8;
+            border: 1px solid #334155;
+        }
+
+        /* Status message */
+        #msg {
+            margin-top: 16px;
+            font-size: 14px;
+            color: #94a3b8;
+            line-height: 1.5;
+            min-height: 40px;
+        }
+        #msg.success { color: #22c55e; }
+        #msg.error   { color: #ef4444; }
+
+    </style>
+</head>
+<body>
+<div class="card">
+    <div class="logo">📸</div>
+    <h2>Photo Studio</h2>
+    <p class="subtitle">Select your photo to send directly to the studio PC</p>
+
+    <!-- Status pill -->
+    <div class="status-pill connecting" id="status-pill">
+        <div class="dot pulse"></div>
+        <span id="status-text">Connecting to PC...</span>
+    </div>
+
+    <!-- Image preview (shown after file select) -->
+    <img id="preview-img" alt="Selected photo preview">
+
+    <!-- Upload zone -->
+    <div class="upload-zone disabled" id="upload-zone" onclick="document.getElementById('file-input').click()">
+        <span class="upload-icon" id="upload-icon">🖼️</span>
+        <div class="upload-label" id="upload-label">Tap to select photo</div>
+        <div class="upload-hint">JPG, PNG — original quality sent</div>
+    </div>
+
+    <input type="file" id="file-input" accept="image/*" capture="environment">
+
+    <!-- Progress bar -->
+    <div class="progress-wrap" id="progress-wrap">
+        <div class="progress-bar" id="progress-bar"></div>
+    </div>
+
+    <!-- Send button -->
+    <button class="btn btn-primary" id="btn-send" disabled onclick="sendPhoto()">
+        📤 Send to Studio
+    </button>
+
+    <!-- Status message -->
+    <div id="msg">Waiting for PC connection...</div>
+</div>
+
+<script>
+// ── Read peerId from URL ?peerId=xxxx ────────────────────
+const params     = new URLSearchParams(window.location.search);
+const targetId   = params.get('peerId');
+
+const statusPill  = document.getElementById('status-pill');
+const statusText  = document.getElementById('status-text');
+const uploadZone  = document.getElementById('upload-zone');
+const uploadIcon  = document.getElementById('upload-icon');
+const uploadLabel = document.getElementById('upload-label');
+const btnSend     = document.getElementById('btn-send');
+const msgEl       = document.getElementById('msg');
+const progressWrap= document.getElementById('progress-wrap');
+const progressBar = document.getElementById('progress-bar');
+const previewImg  = document.getElementById('preview-img');
+const fileInput   = document.getElementById('file-input');
+
+let conn         = null;
+let selectedFile = null;
+let isSending    = false;
+
+// Chunk size — 32 KB per chunk (safe for WebRTC DataChannel)
+const CHUNK_SIZE = 32 * 1024;
+
+// ── Status helper ─────────────────────────────────────────
+function setStatus(state, text) {
+    statusPill.className = 'status-pill ' + state;
+    statusText.textContent = text;
+    const dot = statusPill.querySelector('.dot');
+    if (state === 'connecting' || state === 'sending') {
+        dot.classList.add('pulse');
+    } else {
+        dot.classList.remove('pulse');
+    }
+}
+
+function setMsg(text, cls) {
+    msgEl.textContent = text;
+    msgEl.className   = cls || '';
+}
+
+// ── Validate peerId in URL ────────────────────────────────
+if (!targetId) {
+    setStatus('error', 'Invalid QR Code');
+    setMsg('Please scan the QR code from the Photo Studio app again.', 'error');
+}
+
+// ── Init PeerJS on mobile side ────────────────────────────
+function initMobilePeer() {
+    if (!targetId) return;
+
+    const mobilePeer = new Peer({
+        config: {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302'  },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun.cloudflare.com:3478' },
+                {
+                    urls: [
+                        'turn:openrelay.metered.ca:80',
+                        'turn:openrelay.metered.ca:443',
+                        'turn:openrelay.metered.ca:443?transport=tcp'
+                    ],
+                    username:   'openrelayproject',
+                    credential: 'openrelayproject'
+                },
+                {
+                    urls:       'turn:freeturn.net:3479',
+                    username:   'free',
+                    credential: 'free'
+                }
+            ],
+            iceCandidatePoolSize: 10
+        },
+        debug: 0
+    });
+
+    mobilePeer.on('open', () => {
+        // Mobile peer is ready — now connect to PC
+        conn = mobilePeer.connect(targetId, {
+            reliable: true,
+            serialization: 'json'
+        });
+
+        conn.on('open', () => {
+            setStatus('ready', 'PC Connected ✓');
+            setMsg('Connection established! Select your photo.');
+            enableUpload();
+        });
+
+        conn.on('data', (data) => {
+            if (data.status === 'chunk_ack') {
+                // Handled inside sendPhoto()
+                return;
+            }
+            if (data.status === 'received') {
+                setStatus('done', 'Photo Sent ✓');
+                setMsg('✅ ' + data.message, 'success');
+                isSending = false;
+                progressWrap.style.display = 'none';
+                uploadZone.classList.remove('disabled');
+                // Reset for next photo
+                setTimeout(resetUpload, 3000);
+            }
+            if (data.status === 'busy') {
+                setStatus('error', 'Studio Busy');
+                setMsg('⏳ ' + data.message, 'error');
+                isSending = false;
+                progressWrap.style.display = 'none';
+                uploadZone.classList.remove('disabled');
+                btnSend.disabled = false;
+            }
+        });
+
+        conn.on('error', (err) => {
+            setStatus('error', 'Connection Error');
+            setMsg('Connection failed: ' + err.message + '. Please refresh and try again.', 'error');
+        });
+
+        conn.on('close', () => {
+            setStatus('error', 'Disconnected');
+            setMsg('PC disconnected. Please ask studio to regenerate QR.', 'error');
+            disableUpload();
+        });
+    });
+
+    mobilePeer.on('error', (err) => {
+        setStatus('error', 'Error');
+        setMsg('❌ Error: ' + err.type + '. Retrying in 4s...');
+        setTimeout(initMobilePeer, 4000);
+    });
+}
+
+initMobilePeer();
+
+// ── Enable/disable upload zone ────────────────────────────
+function enableUpload() {
+    uploadZone.classList.remove('disabled');
+    uploadZone.classList.add('active-zone');
+}
+function disableUpload() {
+    uploadZone.classList.add('disabled');
+    uploadZone.classList.remove('active-zone');
+}
+
+// ── File selected ─────────────────────────────────────────
+fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    selectedFile = file;
+
+    // Show preview
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        previewImg.src = ev.target.result;
+        previewImg.style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+
+    uploadIcon.textContent  = '✅';
+    uploadLabel.textContent = file.name + ' (' + (file.size / 1024).toFixed(0) + ' KB)';
+    btnSend.disabled = false;
+    setMsg('Photo selected. Tap "Send to Studio" when ready.');
+});
+
+// ── Send photo in chunks ──────────────────────────────────
+async function sendPhoto() {
+    if (!selectedFile || !conn || isSending) return;
+    isSending = true;
+
+    btnSend.disabled = true;
+    disableUpload();
+    setStatus('sending', 'Sending...');
+    progressWrap.style.display = 'block';
+    progressBar.style.width = '0%';
+    setMsg('Reading image...');
+
+    // Read as base64 data URL (original quality, no compression)
+    const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload  = (e) => resolve(e.target.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(selectedFile);
+    });
+
+    // Split base64 string into chunks
+    const totalLen   = base64.length;
+    const numChunks  = Math.ceil(totalLen / CHUNK_SIZE);
+
+    setMsg(`Sending ${numChunks} parts... please wait.`);
+
+    // Signal start
+    conn.send({ type: 'chunk_start', total: numChunks, filename: selectedFile.name });
+
+    // Send each chunk with acknowledgement wait
+    for (let i = 0; i < numChunks; i++) {
+        const chunk = base64.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+
+        // Wait for ACK from previous chunk before sending next
+        await new Promise((resolve) => {
+            const ackHandler = (data) => {
+                if (data && data.status === 'chunk_ack' && data.index === i - 1) {
+                    conn.off('data', ackHandler);
+                    resolve();
+                }
+            };
+            if (i === 0) {
+                resolve(); // No wait needed for first chunk
+            } else {
+                conn.on('data', ackHandler);
+            }
+        });
+
+        conn.send({ type: 'chunk', index: i, data: chunk });
+
+        const pct = Math.round(((i + 1) / numChunks) * 95);
+        progressBar.style.width = pct + '%';
+        setMsg(`Sending... ${pct}%`);
+    }
+
+    // Signal end
+    conn.send({ type: 'chunk_end', total: numChunks });
+    progressBar.style.width = '100%';
+    setMsg('Waiting for studio confirmation...');
+}
+
+// ── Reset for next send ───────────────────────────────────
+function resetUpload() {
+    selectedFile           = null;
+    fileInput.value        = '';
+    previewImg.src         = '';
+    previewImg.style.display = 'none';
+    uploadIcon.textContent  = '🖼️';
+    uploadLabel.textContent = 'Tap to select photo';
+    btnSend.disabled        = true;
+    enableUpload();
+    setStatus('ready', 'PC Connected ✓');
+    setMsg('Connection established! Select your photo.');
+}
+</script>
+</body>
+</html>
